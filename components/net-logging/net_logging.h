@@ -21,8 +21,11 @@ typedef struct {
 // The size, in bytes, required to hold each item in the message,
 #define xItemSize 256
 
+int retreive_early_log(void* dest, int size);
 
 int logging_vprintf( const char *fmt, va_list l );
+void net_logging_early_init(int16_t enableStdout);
+
 esp_err_t udp_logging_init(char *ipaddr, unsigned long port, int16_t enableStdout);
 esp_err_t tcp_logging_init(char *ipaddr, unsigned long port, int16_t enableStdout);
 esp_err_t mqtt_logging_init(char *url, char *topic, int16_t enableStdout);
