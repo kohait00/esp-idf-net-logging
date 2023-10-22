@@ -18,9 +18,9 @@
 
 #include "net_logging.h"
 
-extern MessageBufferHandle_t xMessageBufferTrans;
+extern MessageBufferHandle_t xMessageBufferTrans_http;
 
-esp_err_t _http_event_handler(esp_http_client_event_t *evt)
+esp_err_t _http_client_event_handler(esp_http_client_event_t *evt)
 {
 	static char *output_buffer;  // Buffer to store response of http request from event handler
 	static int output_len;		 // Stores number of bytes read
@@ -116,7 +116,7 @@ static void http_post_with_url(char *url, char * post_data, size_t post_len)
 	esp_http_client_config_t config = {
 		.url = url,
 		.path = "/post",
-		.event_handler = _http_event_handler,
+		.event_handler = _http_client_event_handler,
 		.user_data = local_response_buffer,			 // Pass address of local buffer to get response
 		.disable_auto_redirect = true,
 	};
@@ -168,7 +168,7 @@ void http_client(void *pvParameters)
 	xTaskNotifyGive(param.taskHandle);
 
 	while (1) {
-		size_t received = xMessageBufferReceive(xMessageBufferTrans, buffer, sizeof(buffer), portMAX_DELAY);
+		size_t received = xMessageBufferReceive(xMessageBufferTrans_http, buffer, sizeof(buffer), portMAX_DELAY);
 		//printf("xMessageBufferReceive received=%d\n", received);
 		if (received > 0) {
 			//printf("xMessageBufferReceive buffer=[%.*s]\n",received, buffer);

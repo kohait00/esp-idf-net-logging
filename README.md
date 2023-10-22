@@ -103,6 +103,8 @@ You can use [this](https://github.com/nopnop2002/esp-idf-mqtt-broker) as a broke
 # API   
 Use one of the following.   
 Subsequent logging will be redirected.   
+NOTE: call any of the init functions earliest after ```esp_wifi_init```   
+
 ```
 esp_err_t udp_logging_init(char *ipaddr, unsigned long port, int16_t enableStdout);
 esp_err_t tcp_logging_init(char *ipaddr, unsigned long port, int16_t enableStdout);

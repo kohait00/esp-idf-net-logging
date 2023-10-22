@@ -16,7 +16,7 @@
 
 #include "net_logging.h"
 
-extern MessageBufferHandle_t xMessageBufferTrans;
+extern MessageBufferHandle_t xMessageBufferTrans_udp;
 
 void udp_dump(char *id, char *data, int len)
 {
@@ -55,7 +55,7 @@ void udp_client(void *pvParameters) {
 	xTaskNotifyGive(param.taskHandle);
 
 	while(1) {
-		size_t received = xMessageBufferReceive(xMessageBufferTrans, buffer, sizeof(buffer), portMAX_DELAY);
+		size_t received = xMessageBufferReceive(xMessageBufferTrans_udp, buffer, sizeof(buffer), portMAX_DELAY);
 		//printf("xMessageBufferReceive received=%d\n", received);
 		if (received > 0) {
 			//printf("xMessageBufferReceive buffer=[%.*s]\n",received, buffer);
@@ -98,7 +98,13 @@ buffer NOT included escape code
 */
 
 			ret = lwip_sendto(fd, buffer, received, 0, (struct sockaddr *)&addr, sizeof(addr));
-			LWIP_ASSERT("ret == received", ret == received);
+//			LWIP_ASSERT("ret == received", ret == received);
+			if(ret != received)
+			{
+				//probably log to a buffer
+				printf("udp_client failed to send %d, only %d, dropping\n", received, ret);
+			}
+
 		} else {
 			printf("xMessageBufferReceive fail\n");
 			break;

@@ -11,25 +11,53 @@
 
 #include "net_logging.h"
 
-MessageBufferHandle_t xMessageBufferTrans;
+MessageBufferHandle_t xMessageBufferTrans_udp = NULL;
+MessageBufferHandle_t xMessageBufferTrans_tcp = NULL;
+MessageBufferHandle_t xMessageBufferTrans_mqqt = NULL;
+MessageBufferHandle_t xMessageBufferTrans_http = NULL;
+
 bool writeToStdout;
 
 int logging_vprintf( const char *fmt, va_list l ) {
-	// Convert according to format
-	char buffer[xItemSize];
-	int buffer_len = vsprintf(buffer, fmt, l);
-	//printf("logging_vprintf buffer_len=%d\n",buffer_len);
-	//printf("logging_vprintf buffer=[%.*s]\n", buffer_len, buffer);
-	if (buffer_len > 0) {
-		// Send MessageBuffer
-		BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-		size_t sended = xMessageBufferSendFromISR(xMessageBufferTrans, &buffer, buffer_len, &xHigherPriorityTaskWoken);
-		//printf("logging_vprintf sended=%d\n",sended);
-		assert(sended == buffer_len);
+
+	bool bLoggersActive = (xMessageBufferTrans_udp != NULL)
+							|| (xMessageBufferTrans_tcp != NULL)
+							|| (xMessageBufferTrans_mqqt != NULL)
+							|| (xMessageBufferTrans_http != NULL)
+							;
+	if(bLoggersActive)
+	{
+		// Convert according to format
+		char buffer[xItemSize];
+		int buffer_len = vsprintf(buffer, fmt, l);
+		//printf("logging_vprintf buffer_len=%d\n",buffer_len);
+		//printf("logging_vprintf buffer=[%.*s]\n", buffer_len, buffer);
+		if (buffer_len > 0) {
+			// Send MessageBuffer
+			BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+			if(xMessageBufferTrans_udp != NULL) {
+				size_t sended = xMessageBufferSendFromISR(xMessageBufferTrans_udp, &buffer, buffer_len, &xHigherPriorityTaskWoken);
+				//printf("logging_vprintf sended=%d\n",sended);
+				assert(sended == buffer_len);
+			}
+			if(xMessageBufferTrans_tcp != NULL) {
+				size_t sended = xMessageBufferSendFromISR(xMessageBufferTrans_tcp, &buffer, buffer_len, &xHigherPriorityTaskWoken);
+				assert(sended == buffer_len);
+			}
+			if(xMessageBufferTrans_mqqt != NULL) {
+				size_t sended = xMessageBufferSendFromISR(xMessageBufferTrans_mqqt, &buffer, buffer_len, &xHigherPriorityTaskWoken);
+				assert(sended == buffer_len);
+			}
+			if(xMessageBufferTrans_http != NULL) {
+				size_t sended = xMessageBufferSendFromISR(xMessageBufferTrans_http, &buffer, buffer_len, &xHigherPriorityTaskWoken);
+				assert(sended == buffer_len);
+			}
+		}
 	}
 
 	// Write to stdout
-	if (writeToStdout) {
+	if (writeToStdout || (!bLoggersActive)) { //if no logger active ignore the writeToStdout and print anyway
 		return vprintf( fmt, l );
 	} else {
 		return 0;
@@ -42,8 +70,8 @@ esp_err_t udp_logging_init(char *ipaddr, unsigned long port, int16_t enableStdou
 	printf("start udp logging: ipaddr=[%s] port=%ld\n", ipaddr, port);
 
 	// Create MessageBuffer
-	xMessageBufferTrans = xMessageBufferCreate(xBufferSizeBytes);
-	configASSERT( xMessageBufferTrans );
+	xMessageBufferTrans_udp = xMessageBufferCreate(xBufferSizeBytes);
+	configASSERT( xMessageBufferTrans_udp );
 
 	// Start UDP task
 	PARAMETER_t param;
@@ -68,8 +96,8 @@ esp_err_t tcp_logging_init(char *ipaddr, unsigned long port, int16_t enableStdou
 	printf("start tcp logging: ipaddr=[%s] port=%ld\n", ipaddr, port);
 
 	// Create MessageBuffer
-	xMessageBufferTrans = xMessageBufferCreate(xBufferSizeBytes);
-	configASSERT( xMessageBufferTrans );
+	xMessageBufferTrans_tcp = xMessageBufferCreate(xBufferSizeBytes);
+	configASSERT( xMessageBufferTrans_tcp );
 
 	// Start TCP task
 	PARAMETER_t param;
@@ -94,8 +122,8 @@ esp_err_t mqtt_logging_init(char *url, char *topic, int16_t enableStdout) {
 	printf("start mqtt logging: url=[%s] topic=[%s]\n", url, topic);
 
 	// Create MessageBuffer
-	xMessageBufferTrans = xMessageBufferCreate(xBufferSizeBytes);
-	configASSERT( xMessageBufferTrans );
+	xMessageBufferTrans_mqqt = xMessageBufferCreate(xBufferSizeBytes);
+	configASSERT( xMessageBufferTrans_mqqt );
 
 	// Start MQTT task
 	PARAMETER_t param;
@@ -120,8 +148,8 @@ esp_err_t http_logging_init(char *url, int16_t enableStdout) {
 	printf("start http logging: url=[%s]\n", url);
 
 	// Create MessageBuffer
-	xMessageBufferTrans = xMessageBufferCreate(xBufferSizeBytes);
-	configASSERT( xMessageBufferTrans );
+	xMessageBufferTrans_http = xMessageBufferCreate(xBufferSizeBytes);
+	configASSERT( xMessageBufferTrans_http );
 
 	// Start HTTP task
 	PARAMETER_t param;

@@ -20,7 +20,7 @@
 
 #include "net_logging.h"
 
-extern MessageBufferHandle_t xMessageBufferTrans;
+extern MessageBufferHandle_t xMessageBufferTrans_tcp;
 
 void tcp_client(void *pvParameters)
 {
@@ -77,12 +77,17 @@ void tcp_client(void *pvParameters)
 	xTaskNotifyGive(param.taskHandle);
 
 	while (1) {
-		size_t received = xMessageBufferReceive(xMessageBufferTrans, buffer, sizeof(buffer), portMAX_DELAY);
+		size_t received = xMessageBufferReceive(xMessageBufferTrans_tcp, buffer, sizeof(buffer), portMAX_DELAY);
 		//printf("xMessageBufferReceive received=%d\n", received);
 		if (received > 0) {
 			//printf("xMessageBufferReceive buffer=[%.*s]\n",received, buffer);
 			int ret = send(sock, buffer, received, 0);
-			LWIP_ASSERT("ret == received", ret == received);
+//			LWIP_ASSERT("ret == received", ret == received);
+			if(ret != received)
+			{
+				//probably log to a buffer
+				printf("udp_client failed to send %d, only %d, dropping\n", received, ret);
+			}
 
 #if 0
 			int len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, 0);
