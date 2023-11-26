@@ -6,13 +6,9 @@ menu "NET Logging"
 		help
 			Enable write Logging to STDOUT.
 
-	choice ENABLE_LOG
-		prompt "Protocol"
-		default ENABLE_UDP_LOG
-		help
-			Select Logging protocol.
 		config ENABLE_UDP_LOG
 			bool "UDP Logging"
+			default y
 			help
 				Enable UDP Logging
 		config ENABLE_TCP_LOG
@@ -27,7 +23,6 @@ menu "NET Logging"
 			bool "HTTP Logging"
 			help
 				Enable HTTP Logging
-	endchoice
 
 	config ESP_WIFI_SSID
 		string "WiFi SSID"
