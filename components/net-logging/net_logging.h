@@ -18,7 +18,8 @@ typedef struct {
 	TaskHandle_t taskHandle;
 } PARAMETER_t;
 
-int logging_vprintf( const char *fmt, va_list l );
+int net_logging_vprintf( const char *fmt, va_list l );
+int net_logging_printf(const char *fmt, ...);
 void net_logging_init(bool enableStdout);
 
 esp_err_t udp_logging_init(char *ipaddr, unsigned long port, int16_t enableStdout);

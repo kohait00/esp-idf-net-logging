@@ -27,7 +27,7 @@ char xEarlyLog[2048u] = {0};
 early_vprintf_like_t xPrevious_early_vprintf_like = NULL;
 vprintf_like_t xPrevious_vprintf_like = NULL;
 
-int retreive_early_log(void* dest, int size)
+int net_logging_retreive_log(void* dest, int size)
 {
 	int len = min(size, xEarlyLogIdx);
 	memcpy(dest, xEarlyLog, len);
@@ -37,27 +37,7 @@ int retreive_early_log(void* dest, int size)
 	return xEarlyLogIdx;
 }
 
-int logging_early_vprintf(const char *fmt, va_list args)
-{
-    int ret = vsnprintf(&xEarlyLog[xEarlyLogIdx], sizeof(xEarlyLog) - xEarlyLogIdx, fmt, args);
-    xEarlyLogIdx += ret;
-    return ret;
-}
-
-
-int logging_early_printf(const char *fmt, ...)
-{
-    va_list ap;
-    int ret;
-
-    va_start(ap, fmt);
-    ret = logging_early_vprintf(fmt, ap);
-    va_end(ap);
-
-    return ret;
-}
-
-int logging_out(const char* buffer, unsigned int buffer_len)
+int net_logging_out(const char* buffer, unsigned int buffer_len)
 {
 	if(!bLoggersActive)
 		return 0;
@@ -88,7 +68,27 @@ int logging_out(const char* buffer, unsigned int buffer_len)
 	return buffer_len;
 }
 
-int logging_vprintf( const char *fmt, va_list l )
+int net_logging_early_vprintf(const char *fmt, va_list l)
+{
+    int ret = vsnprintf(&xEarlyLog[xEarlyLogIdx], sizeof(xEarlyLog) - xEarlyLogIdx, fmt, l);
+    xEarlyLogIdx += ret;
+    return ret;
+}
+
+
+int net_logging_early_printf(const char *fmt, ...)
+{
+    va_list ap;
+    int ret;
+
+    va_start(ap, fmt);
+    ret = net_logging_early_vprintf(fmt, ap);
+    va_end(ap);
+
+    return ret;
+}
+
+int net_logging_vprintf( const char *fmt, va_list l )
 {
 	//convenience, send history once possible
 /////////////
@@ -97,7 +97,7 @@ int logging_vprintf( const char *fmt, va_list l )
 
 	while ((left2send = xEarlyLogIdx - xEarlyLogIdxSent) > 0)
 	{
-		int sent = logging_out(&xEarlyLog[xEarlyLogIdxSent], min(left2send, xBufferSizeBytes));
+		int sent = net_logging_out(&xEarlyLog[xEarlyLogIdxSent], min(left2send, xBufferSizeBytes));
 		if(bLoggersActive) //prevent early pints to use delays, if RTOS not yet initialized
 			vTaskDelay(200 / portTICK_PERIOD_MS); //every 200ms
 		else if(sent == 0)
@@ -126,7 +126,7 @@ int logging_vprintf( const char *fmt, va_list l )
 
 		if(prev_left2send == 0) //if history had been sent off, we can safely send
 		{
-			sent = logging_out(buffer, buffer_len);
+			sent = net_logging_out(buffer, buffer_len);
 
 			//if sending was already possible, also keep the Sent position current
 			if(sent >= len)
@@ -135,7 +135,7 @@ int logging_vprintf( const char *fmt, va_list l )
 	}
 	else
 	{
-		sent = logging_out(buffer, buffer_len);
+		sent = net_logging_out(buffer, buffer_len);
 	}
 
 	// Write to stdout
@@ -146,17 +146,29 @@ int logging_vprintf( const char *fmt, va_list l )
 	}
 }
 
+int net_logging_printf(const char *fmt, ...)
+{
+    va_list ap;
+    int ret;
+
+    va_start(ap, fmt);
+    ret = net_logging_vprintf(fmt, ap);
+    va_end(ap);
+
+    return ret;
+}
+
 void net_logging_early_init(bool enableStdout)
 {
-	xPrevious_early_vprintf_like = esp_log_set_early_vprintf(logging_early_printf);
+	xPrevious_early_vprintf_like = esp_log_set_early_vprintf(net_logging_early_printf);
 	writeToStdout = enableStdout;
 
-	net_logging_init(true);
+	net_logging_init(enableStdout);
 }
 
 void net_logging_init(bool enableStdout)
 {
-	xPrevious_vprintf_like = esp_log_set_vprintf(logging_vprintf);
+	xPrevious_vprintf_like = esp_log_set_vprintf(net_logging_vprintf);
 	writeToStdout = enableStdout;
 }
 
