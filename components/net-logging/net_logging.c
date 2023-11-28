@@ -21,10 +21,14 @@ MessageBufferHandle_t xMessageBufferTrans_mqqt = NULL;
 MessageBufferHandle_t xMessageBufferTrans_http = NULL;
 
 bool writeToStdout = true; //default value for early log
+bool bLoggersActive = false;
 
 int xId = 0;
 int xEarlyLogIdx = 0;
 unsigned char xEarlyLog[EARLY_LOG_SIZE] = {0};
+unsigned int xEarlyLogIdxSent = 0;
+early_vprintf_like_t xPrevious_early_vprintf_like = NULL;
+vprintf_like_t xPrevious_vprintf_like = NULL;
 
 int retreive_early_log(void* dest, int size)
 {
@@ -36,68 +40,126 @@ int retreive_early_log(void* dest, int size)
 	return xEarlyLogIdx;
 }
 
-int logging_vprintf( const char *fmt, va_list l ) {
+int logging_early_vprintf(const char *fmt, va_list args)
+{
+    int ret = vsnprintf(&xEarlyLog[xEarlyLogIdx], sizeof(xEarlyLog) - xEarlyLogIdx, fmt, args);
+    xEarlyLogIdx += ret;
+    return ret;
+}
 
-	bool bLoggersActive = (xMessageBufferTrans_udp != NULL)
-							|| (xMessageBufferTrans_tcp != NULL)
-							|| (xMessageBufferTrans_mqqt != NULL)
-							|| (xMessageBufferTrans_http != NULL)
-							;
-	// Convert according to format
-	char buffer[xItemSize];
+int logging_early_printf(const char *fmt, ...)
+{
+    va_list ap;
+    int ret;
 
-	int buffer_len = vsprintf(buffer, "[%U] ", (int)xId);
-	buffer_len += vsprintf(&buffer[buffer_len], fmt, l);
+    va_start(ap, fmt);
+    ret = logging_early_vprintf(fmt, ap);
+    va_end(ap);
 
-	//printf("logging_vprintf buffer_len=%d\n",buffer_len);
-	//printf("logging_vprintf buffer=[%.*s]\n", buffer_len, buffer);
+    return ret;
+}
 
-	if(bLoggersActive)
-	{
-		if (buffer_len > 0) {
-			// Send MessageBuffer
-			BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+int logging_out(const char* buffer, unsigned int buffer_len)
+{
+	if(!bLoggersActive)
+		return 0;
 
-			if(xMessageBufferTrans_udp != NULL) {
-				size_t sended = xMessageBufferSendFromISR(xMessageBufferTrans_udp, &buffer, buffer_len, &xHigherPriorityTaskWoken);
-				assert(sended == buffer_len);
-			}
-			if(xMessageBufferTrans_tcp != NULL) {
-				size_t sended = xMessageBufferSendFromISR(xMessageBufferTrans_tcp, &buffer, buffer_len, &xHigherPriorityTaskWoken);
-				assert(sended == buffer_len);
-			}
-			if(xMessageBufferTrans_mqqt != NULL) {
-				size_t sended = xMessageBufferSendFromISR(xMessageBufferTrans_mqqt, &buffer, buffer_len, &xHigherPriorityTaskWoken);
-				assert(sended == buffer_len);
-			}
-			if(xMessageBufferTrans_http != NULL) {
-				size_t sended = xMessageBufferSendFromISR(xMessageBufferTrans_http, &buffer, buffer_len, &xHigherPriorityTaskWoken);
-				assert(sended == buffer_len);
-			}
+	if (buffer_len > 0) {
+		// Send MessageBuffer
+		BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+		if(xMessageBufferTrans_udp != NULL) {
+			size_t sent = xMessageBufferSendFromISR(xMessageBufferTrans_udp, buffer, buffer_len, &xHigherPriorityTaskWoken);
+			printf("logging_vprintf sent=%d\n",sent);
+//			assert(sent == buffer_len);
+		}
+		if(xMessageBufferTrans_tcp != NULL) {
+			size_t sent = xMessageBufferSendFromISR(xMessageBufferTrans_tcp, buffer, buffer_len, &xHigherPriorityTaskWoken);
+			assert(sent == buffer_len);
+		}
+		if(xMessageBufferTrans_mqqt != NULL) {
+			size_t sent = xMessageBufferSendFromISR(xMessageBufferTrans_mqqt, buffer, buffer_len, &xHigherPriorityTaskWoken);
+			assert(sent == buffer_len);
+		}
+		if(xMessageBufferTrans_http != NULL) {
+			size_t sent = xMessageBufferSendFromISR(xMessageBufferTrans_http, buffer, buffer_len, &xHigherPriorityTaskWoken);
+			assert(sent == buffer_len);
 		}
 	}
-//	else
+
+	return buffer_len;
+}
+
+int logging_vprintf( const char *fmt, va_list l )
+{
+	//convenience, send history once possible
+/////////////
+	//we might have remainders
+	unsigned int left2send = 0;
+
+	while ((left2send = xEarlyLogIdx - xEarlyLogIdxSent) > 0)
 	{
-		int len = min(buffer_len, (sizeof(xEarlyLog) - xEarlyLogIdx));
-		if(len > 0)
+		int sent = logging_out(&xEarlyLog[xEarlyLogIdxSent], min(left2send, xBufferSizeBytes));
+		if(bLoggersActive) //prevent early pints to use delays, if RTOS not yet initialized
+			vTaskDelay(200 / portTICK_PERIOD_MS); //every 200ms
+		else if(sent == 0)
+			break; //just send out logging out once
+
+		xEarlyLogIdxSent += sent;
+	}
+////////////
+
+	// Convert according to format
+	char buffer[xItemSize];
+	//printf("logging_vprintf buffer_len=%d\n",buffer_len);
+	//printf("logging_vprintf buffer=[%.*s]\n", buffer_len, buffer);
+	int buffer_len = vsnprintf(buffer, "[%U] ", (int)xId);
+	buffer_len += vsprintf(&buffer[buffer_len], sizeof(buffer), fmt, l);
+	int sent = 0;
+
+	//write to the early buffer in any case
+	int len = min(buffer_len, (sizeof(xEarlyLog) - xEarlyLogIdx));
+	if(len > 0)
+	{
+		unsigned int prev_left2send = xEarlyLogIdx - xEarlyLogIdxSent; //should usually be 0
+
+		memcpy(&xEarlyLog[xEarlyLogIdx], buffer, len);
+		xEarlyLogIdx += len;
+//		printf("LOG %d, %d", xEarlyLogIdx, len);
+
+		if(prev_left2send == 0) //if history had been sent off, we can safely send
 		{
-			//add buffer / buffer_len to an bootup buffer //todo
-			memcpy(&xEarlyLog[xEarlyLogIdx], buffer, len);
-			xEarlyLogIdx += len;
+			sent = logging_out(buffer, buffer_len);
+
+			//if sending was already possible, also keep the Sent position current
+			if(sent >= len)
+				xEarlyLogIdxSent += len;
 		}
+	}
+	else
+	{
+		sent = logging_out(buffer, buffer_len);
 	}
 
 	// Write to stdout
-	if (writeToStdout || (!bLoggersActive)) { //if no logger active ignore the writeToStdout and print anyway
-		return vprintf( fmt, l );
+	if (xPrevious_vprintf_like != NULL && (writeToStdout || (!bLoggersActive))) { //if no logger active ignore the writeToStdout and print anyway
+		return xPrevious_vprintf_like( fmt, l );
 	} else {
-		return 0;
+		return sent;
 	}
 }
 
-void net_logging_early_init(int16_t enableStdout)
+void net_logging_early_init(bool enableStdout)
 {
-	esp_log_set_vprintf(logging_vprintf);
+	xPrevious_early_vprintf_like = esp_log_set_early_vprintf(logging_early_printf);
+	writeToStdout = enableStdout;
+
+	net_logging_init(true);
+}
+
+void net_logging_init(bool enableStdout)
+{
+	xPrevious_vprintf_like = esp_log_set_vprintf(logging_vprintf);
 	writeToStdout = enableStdout;
 }
 
@@ -123,6 +185,12 @@ esp_err_t udp_logging_init(char *ipaddr, unsigned long port, int16_t enableStdou
 
 	// Set function used to output log entries.
 	writeToStdout = enableStdout;
+	bLoggersActive = (xMessageBufferTrans_udp != NULL)
+							|| (xMessageBufferTrans_tcp != NULL)
+							|| (xMessageBufferTrans_mqqt != NULL)
+							|| (xMessageBufferTrans_http != NULL)
+							;
+
 //	esp_log_set_vprintf(logging_vprintf);
 	return ESP_OK;
 }
@@ -149,6 +217,11 @@ esp_err_t tcp_logging_init(char *ipaddr, unsigned long port, int16_t enableStdou
 
 	// Set function used to output log entries.
 	writeToStdout = enableStdout;
+	bLoggersActive = (xMessageBufferTrans_udp != NULL)
+							|| (xMessageBufferTrans_tcp != NULL)
+							|| (xMessageBufferTrans_mqqt != NULL)
+							|| (xMessageBufferTrans_http != NULL)
+							;
 //	esp_log_set_vprintf(logging_vprintf);
 	return ESP_OK;
 }
@@ -175,6 +248,11 @@ esp_err_t mqtt_logging_init(char *url, char *topic, int16_t enableStdout) {
 
 	// Set function used to output log entries.
 	writeToStdout = enableStdout;
+	bLoggersActive = (xMessageBufferTrans_udp != NULL)
+							|| (xMessageBufferTrans_tcp != NULL)
+							|| (xMessageBufferTrans_mqqt != NULL)
+							|| (xMessageBufferTrans_http != NULL)
+							;
 //	esp_log_set_vprintf(logging_vprintf);
 	return ESP_OK;
 }
@@ -200,6 +278,11 @@ esp_err_t http_logging_init(char *url, int16_t enableStdout) {
 
 	// Set function used to output log entries.
 	writeToStdout = enableStdout;
+	bLoggersActive = (xMessageBufferTrans_udp != NULL)
+							|| (xMessageBufferTrans_tcp != NULL)
+							|| (xMessageBufferTrans_mqqt != NULL)
+							|| (xMessageBufferTrans_http != NULL)
+							;
 //	esp_log_set_vprintf(logging_vprintf);
 	return ESP_OK;
 }

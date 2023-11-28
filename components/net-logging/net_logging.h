@@ -8,6 +8,8 @@ extern "C" {
 #include "esp_system.h"
 #include "esp_log.h"
 
+#include "net_logging_early.h"
+
 typedef struct {
 	uint16_t port;
 	char ipv4[20]; // xxx.xxx.xxx.xxx
@@ -16,15 +18,8 @@ typedef struct {
 	TaskHandle_t taskHandle;
 } PARAMETER_t;
 
-// The total number of bytes (not messages) the message buffer will be able to hold at any one time.
-#define xBufferSizeBytes 1024
-// The size, in bytes, required to hold each item in the message,
-#define xItemSize 256
-
-int retreive_early_log(void* dest, int size);
-
 int logging_vprintf( const char *fmt, va_list l );
-void net_logging_early_init(int16_t enableStdout);
+void net_logging_init(bool enableStdout);
 
 esp_err_t udp_logging_init(char *ipaddr, unsigned long port, int16_t enableStdout);
 esp_err_t tcp_logging_init(char *ipaddr, unsigned long port, int16_t enableStdout);
