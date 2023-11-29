@@ -51,7 +51,7 @@ int net_logging_out(const char* buffer, unsigned int buffer_len)
 
 		if(xMessageBufferTrans_udp != NULL) {
 			size_t sent = xMessageBufferSendFromISR(xMessageBufferTrans_udp, buffer, buffer_len, &xHigherPriorityTaskWoken);
-			printf("logging_vprintf sent=%d\n",sent);
+//			printf("logging_vprintf sent=%d\n",sent);
 //			assert(sent == buffer_len);
 		}
 		if(xMessageBufferTrans_tcp != NULL) {
@@ -94,6 +94,7 @@ int net_logging_early_printf(const char *fmt, ...)
 int net_logging_vprintf( const char *fmt, va_list l )
 {
 	//convenience, send history once possible
+#if 0
 /////////////
 	//we might have remainders
 	unsigned int left2send = 0;
@@ -109,6 +110,7 @@ int net_logging_vprintf( const char *fmt, va_list l )
 		xEarlyLogIdxSent += sent;
 	}
 ////////////
+#endif
 
 	// Convert according to format
 	char buffer[xItemSize];
@@ -128,14 +130,14 @@ int net_logging_vprintf( const char *fmt, va_list l )
 		xEarlyLogIdx += len;
 //		printf("LOG %d, %d", xEarlyLogIdx, len);
 
-		if(prev_left2send == 0) //if history had been sent off, we can safely send
-		{
+//		if(prev_left2send == 0) //if history had been sent off, we can safely send
+//		{
 			sent = net_logging_out(buffer, buffer_len);
 
-			//if sending was already possible, also keep the Sent position current
-			if(sent >= len)
-				xEarlyLogIdxSent += len;
-		}
+//			//if sending was already possible, also keep the Sent position current
+//			if(sent >= len)
+//				xEarlyLogIdxSent += len;
+//		}
 	}
 	else
 	{
