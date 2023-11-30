@@ -11,6 +11,8 @@
 
 #include "net_logging.h"
 
+#define EARLY_LOG_SIZE (1<<12)
+
 #	define min(x, y) ((x) < (y) ? (x) : (y))
 
 MessageBufferHandle_t xMessageBufferTrans_udp = NULL;
@@ -18,10 +20,11 @@ MessageBufferHandle_t xMessageBufferTrans_tcp = NULL;
 MessageBufferHandle_t xMessageBufferTrans_mqqt = NULL;
 MessageBufferHandle_t xMessageBufferTrans_http = NULL;
 
-bool writeToStdout;
+bool writeToStdout = true; //default value for early log
 
+int xId = 0;
 int xEarlyLogIdx = 0;
-unsigned char xEarlyLog[2048u] = {0};
+unsigned char xEarlyLog[EARLY_LOG_SIZE] = {0};
 
 int retreive_early_log(void* dest, int size)
 {
@@ -42,7 +45,10 @@ int logging_vprintf( const char *fmt, va_list l ) {
 							;
 	// Convert according to format
 	char buffer[xItemSize];
-	int buffer_len = vsprintf(buffer, fmt, l);
+
+	int buffer_len = vsprintf(buffer, "[%U] ", (int)xId);
+	buffer_len += vsprintf(&buffer[buffer_len], fmt, l);
+
 	//printf("logging_vprintf buffer_len=%d\n",buffer_len);
 	//printf("logging_vprintf buffer=[%.*s]\n", buffer_len, buffer);
 
@@ -54,7 +60,6 @@ int logging_vprintf( const char *fmt, va_list l ) {
 
 			if(xMessageBufferTrans_udp != NULL) {
 				size_t sended = xMessageBufferSendFromISR(xMessageBufferTrans_udp, &buffer, buffer_len, &xHigherPriorityTaskWoken);
-				//printf("logging_vprintf sended=%d\n",sended);
 				assert(sended == buffer_len);
 			}
 			if(xMessageBufferTrans_tcp != NULL) {
