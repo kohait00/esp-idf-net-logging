@@ -25,7 +25,7 @@ bool bLoggersActive = false;
 
 int xId = 0;
 int xEarlyLogIdx = 0;
-unsigned char xEarlyLog[EARLY_LOG_SIZE] = {0};
+char xEarlyLog[EARLY_LOG_SIZE] = {0};
 unsigned int xEarlyLogIdxSent = 0;
 early_vprintf_like_t xPrevious_early_vprintf_like = NULL;
 vprintf_like_t xPrevious_vprintf_like = NULL;
@@ -116,8 +116,9 @@ int net_logging_vprintf( const char *fmt, va_list l )
 	char buffer[xItemSize];
 	//printf("logging_vprintf buffer_len=%d\n",buffer_len);
 	//printf("logging_vprintf buffer=[%.*s]\n", buffer_len, buffer);
-	int buffer_len = vsnprintf(buffer, "[%U] ", (int)xId);
-	buffer_len += vsprintf(&buffer[buffer_len], sizeof(buffer), fmt, l);
+	int buffer_len = 0;
+	buffer_len += snprintf(&buffer[buffer_len], sizeof(buffer) - buffer_len, "[%X] ", (int)xId);
+	buffer_len += vsnprintf(&buffer[buffer_len], sizeof(buffer) - buffer_len, fmt, l);
 	int sent = 0;
 
 	//write to the early buffer in any case
