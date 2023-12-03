@@ -20,12 +20,16 @@ typedef struct {
 
 int net_logging_vprintf( const char *fmt, va_list l );
 int net_logging_printf(const char *fmt, ...);
-void net_logging_init(bool enableStdout);
+void net_logging_init(unsigned int id, bool enableStdout);
 
-esp_err_t udp_logging_init(char *ipaddr, unsigned long port, int16_t enableStdout);
-esp_err_t tcp_logging_init(char *ipaddr, unsigned long port, int16_t enableStdout);
-esp_err_t mqtt_logging_init(char *url, char *topic, int16_t enableStdout);
-esp_err_t http_logging_init(char *url, int16_t enableStdout);
+void net_logging_enable_log(void);
+void net_logging_disable_log(void);
+void net_logging_set_id(unsigned int id);
+
+esp_err_t udp_logging_init(char *ipaddr, unsigned long port);
+esp_err_t tcp_logging_init(char *ipaddr, unsigned long port);
+esp_err_t mqtt_logging_init(char *url, char *topic);
+esp_err_t http_logging_init(char *url);
 
 #ifdef __cplusplus
 }

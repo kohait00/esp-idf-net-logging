@@ -23,10 +23,15 @@ MessageBufferHandle_t xMessageBufferTrans_http = NULL;
 bool writeToStdout = true; //default value for early log
 bool bLoggersActive = false;
 
-int xId = 0;
-int xEarlyLogIdx = 0;
+unsigned int xId = 0;
+
+unsigned int xEarlyLogIdx = 0;
 char xEarlyLog[EARLY_LOG_SIZE] = {0};
-unsigned int xEarlyLogIdxSent = 0;
+unsigned int xEarlyLogIdxSent_udp = 0;
+unsigned int xEarlyLogIdxSent_tcp = 0;
+unsigned int xEarlyLogIdxSent_mqqt = 0;
+unsigned int xEarlyLogIdxSent_http = 0;
+
 early_vprintf_like_t xPrevious_early_vprintf_like = NULL;
 vprintf_like_t xPrevious_vprintf_like = NULL;
 
@@ -40,6 +45,7 @@ int net_logging_retreive_log(void* dest, int size)
 	return xEarlyLogIdx;
 }
 
+//todo take care of first sending the alreadz existing buffer
 int net_logging_out(const char* buffer, unsigned int buffer_len)
 {
 	if(!bLoggersActive)
@@ -93,25 +99,6 @@ int net_logging_early_printf(const char *fmt, ...)
 
 int net_logging_vprintf( const char *fmt, va_list l )
 {
-	//convenience, send history once possible
-#if 0
-/////////////
-	//we might have remainders
-	unsigned int left2send = 0;
-
-	while ((left2send = xEarlyLogIdx - xEarlyLogIdxSent) > 0)
-	{
-		int sent = net_logging_out(&xEarlyLog[xEarlyLogIdxSent], min(left2send, xBufferSizeBytes));
-		if(bLoggersActive) //prevent early pints to use delays, if RTOS not yet initialized
-			vTaskDelay(200 / portTICK_PERIOD_MS); //every 200ms
-		else if(sent == 0)
-			break; //just send out logging out once
-
-		xEarlyLogIdxSent += sent;
-	}
-////////////
-#endif
-
 	// Convert according to format
 	char buffer[xItemSize];
 	//printf("logging_vprintf buffer_len=%d\n",buffer_len);
@@ -125,25 +112,11 @@ int net_logging_vprintf( const char *fmt, va_list l )
 	int len = min(buffer_len, (sizeof(xEarlyLog) - xEarlyLogIdx));
 	if(len > 0)
 	{
-		unsigned int prev_left2send = xEarlyLogIdx - xEarlyLogIdxSent; //should usually be 0
-
 		memcpy(&xEarlyLog[xEarlyLogIdx], buffer, len);
 		xEarlyLogIdx += len;
-//		printf("LOG %d, %d", xEarlyLogIdx, len);
-
-//		if(prev_left2send == 0) //if history had been sent off, we can safely send
-//		{
-			sent = net_logging_out(buffer, buffer_len);
-
-//			//if sending was already possible, also keep the Sent position current
-//			if(sent >= len)
-//				xEarlyLogIdxSent += len;
-//		}
 	}
-	else
-	{
-		sent = net_logging_out(buffer, buffer_len);
-	}
+
+	sent = net_logging_out(buffer, buffer_len);
 
 	// Write to stdout
 	if (xPrevious_vprintf_like != NULL && (writeToStdout || (!bLoggersActive))) { //if no logger active ignore the writeToStdout and print anyway
@@ -165,23 +138,50 @@ int net_logging_printf(const char *fmt, ...)
     return ret;
 }
 
-void net_logging_early_init(bool enableStdout)
+void net_logging_early_init(unsigned int id, bool enableStdout, bool initlate)
 {
-	xPrevious_early_vprintf_like = esp_log_set_early_vprintf(net_logging_early_printf);
+	if(xPrevious_early_vprintf_like == NULL) //prevent loops
+		xPrevious_early_vprintf_like = esp_log_set_early_vprintf(net_logging_early_printf);
+
+	xId = id;
 	writeToStdout = enableStdout;
 
-	net_logging_init(enableStdout);
+	if(initlate)
+		net_logging_init(id, enableStdout);
 }
 
-void net_logging_init(bool enableStdout)
+void net_logging_init(unsigned int id, bool enableStdout)
 {
-	xPrevious_vprintf_like = esp_log_set_vprintf(net_logging_vprintf);
+	if(xPrevious_vprintf_like == NULL) //prevent loops
+		xPrevious_vprintf_like = esp_log_set_vprintf(net_logging_vprintf);
+
+	xId = id;
 	writeToStdout = enableStdout;
+}
+
+void net_logging_enable_log(void)
+{
+	// Set function used to output log entries.
+	bLoggersActive = (xMessageBufferTrans_udp != NULL)
+							|| (xMessageBufferTrans_tcp != NULL)
+							|| (xMessageBufferTrans_mqqt != NULL)
+							|| (xMessageBufferTrans_http != NULL)
+							;
+}
+
+void net_logging_disable_log(void)
+{
+	bLoggersActive = false;
+}
+
+void net_logging_set_id(unsigned int id)
+{
+	xId = id;
 }
 
 void udp_client(void *pvParameters);
 
-esp_err_t udp_logging_init(char *ipaddr, unsigned long port, int16_t enableStdout) {
+esp_err_t udp_logging_init(char *ipaddr, unsigned long port) {
 	printf("start udp logging: ipaddr=[%s] port=%ld\n", ipaddr, port);
 
 	// Create MessageBuffer
@@ -199,21 +199,13 @@ esp_err_t udp_logging_init(char *ipaddr, unsigned long port, int16_t enableStdou
 	ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
 	//printf("ulTaskNotifyTake\n");
 
-	// Set function used to output log entries.
-	writeToStdout = enableStdout;
-	bLoggersActive = (xMessageBufferTrans_udp != NULL)
-							|| (xMessageBufferTrans_tcp != NULL)
-							|| (xMessageBufferTrans_mqqt != NULL)
-							|| (xMessageBufferTrans_http != NULL)
-							;
-
-//	esp_log_set_vprintf(logging_vprintf);
+	net_logging_enable_log();
 	return ESP_OK;
 }
 
 void tcp_client(void *pvParameters);
 
-esp_err_t tcp_logging_init(char *ipaddr, unsigned long port, int16_t enableStdout) {
+esp_err_t tcp_logging_init(char *ipaddr, unsigned long port) {
 	printf("start tcp logging: ipaddr=[%s] port=%ld\n", ipaddr, port);
 
 	// Create MessageBuffer
@@ -231,20 +223,13 @@ esp_err_t tcp_logging_init(char *ipaddr, unsigned long port, int16_t enableStdou
 	ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
 	//printf("ulTaskNotifyTake\n");
 
-	// Set function used to output log entries.
-	writeToStdout = enableStdout;
-	bLoggersActive = (xMessageBufferTrans_udp != NULL)
-							|| (xMessageBufferTrans_tcp != NULL)
-							|| (xMessageBufferTrans_mqqt != NULL)
-							|| (xMessageBufferTrans_http != NULL)
-							;
-//	esp_log_set_vprintf(logging_vprintf);
+	net_logging_enable_log();
 	return ESP_OK;
 }
 
 void mqtt_pub(void *pvParameters);
 
-esp_err_t mqtt_logging_init(char *url, char *topic, int16_t enableStdout) {
+esp_err_t mqtt_logging_init(char *url, char *topic) {
 	printf("start mqtt logging: url=[%s] topic=[%s]\n", url, topic);
 
 	// Create MessageBuffer
@@ -262,20 +247,13 @@ esp_err_t mqtt_logging_init(char *url, char *topic, int16_t enableStdout) {
 	ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
 	//printf("ulTaskNotifyTake\n");
 
-	// Set function used to output log entries.
-	writeToStdout = enableStdout;
-	bLoggersActive = (xMessageBufferTrans_udp != NULL)
-							|| (xMessageBufferTrans_tcp != NULL)
-							|| (xMessageBufferTrans_mqqt != NULL)
-							|| (xMessageBufferTrans_http != NULL)
-							;
-//	esp_log_set_vprintf(logging_vprintf);
+	net_logging_enable_log();
 	return ESP_OK;
 }
 
 void http_client(void *pvParameters);
 
-esp_err_t http_logging_init(char *url, int16_t enableStdout) {
+esp_err_t http_logging_init(char *url) {
 	printf("start http logging: url=[%s]\n", url);
 
 	// Create MessageBuffer
@@ -292,13 +270,6 @@ esp_err_t http_logging_init(char *url, int16_t enableStdout) {
 	ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
 	//printf("ulTaskNotifyTake\n");
 
-	// Set function used to output log entries.
-	writeToStdout = enableStdout;
-	bLoggersActive = (xMessageBufferTrans_udp != NULL)
-							|| (xMessageBufferTrans_tcp != NULL)
-							|| (xMessageBufferTrans_mqqt != NULL)
-							|| (xMessageBufferTrans_http != NULL)
-							;
-//	esp_log_set_vprintf(logging_vprintf);
+	net_logging_enable_log();
 	return ESP_OK;
 }

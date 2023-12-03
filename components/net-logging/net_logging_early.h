@@ -16,7 +16,7 @@ extern "C" {
 int net_logging_retreive_log(void* dest, int size);
 int net_logging_early_vprintf(const char *fmt, va_list l);
 int net_logging_early_printf(const char *fmt, ...);
-void net_logging_early_init(bool enableStdout);
+void net_logging_early_init(unsigned int id, bool enableStdout, bool initlate);
 
 #ifdef __cplusplus
 }
