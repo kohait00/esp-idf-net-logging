@@ -5,6 +5,8 @@
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
 #include "freertos/message_buffer.h"
+#include <freertos/timers.h>
+
 
 #include "esp_system.h"
 #include "esp_log.h"
@@ -45,7 +47,31 @@ int net_logging_retreive_log(void* dest, int size)
 	return xEarlyLogIdx;
 }
 
-//todo take care of first sending the alreadz existing buffer
+static TimerHandle_t xTimer = NULL;
+
+int net_logging_out(const char* buffer, unsigned int buffer_len);
+static void net_logging_DelayedLOG(TimerHandle_t _xTimer)
+{
+	net_logging_out(NULL, 0xFFFFFFFF); //to surely trigger the early log buffer sending
+
+	xTimerDelete(_xTimer, 0);
+}
+
+static void StartDeleyedLOG(void)
+{
+    xTimer = xTimerCreate ( "DelayedLOG",
+                       100 / portTICK_PERIOD_MS, //100 ms
+                       pdFALSE, //no autoreload
+                       NULL,
+                       &net_logging_DelayedLOG );
+    xTimerStart(xTimer, 0);
+}
+
+//todo take care of first sending the already existing buffer
+//this is done by examining the sent position and the current early log position
+//note that everytime there is more left in the buffer that hasnt been sent yet, we need to trigger a log entry from another thread to wake this up
+//so if xEarlyLogIdxSent_udp == xEarlyLogIdx just sent right away
+//if there is sth left to sendfrom buffer and it is not
 int net_logging_out(const char* buffer, unsigned int buffer_len)
 {
 	if(!bLoggersActive)
@@ -56,9 +82,40 @@ int net_logging_out(const char* buffer, unsigned int buffer_len)
 		BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
 		if(xMessageBufferTrans_udp != NULL) {
-			size_t sent = xMessageBufferSendFromISR(xMessageBufferTrans_udp, buffer, buffer_len, &xHigherPriorityTaskWoken);
-//			printf("logging_vprintf sent=%d\n",sent);
-//			assert(sent == buffer_len);
+
+			size_t sent = 0;
+			unsigned int left2send = xEarlyLogIdx - xEarlyLogIdxSent_udp;
+
+			printf("logging_vprintf %d %d\n",(int)left2send, (int)buffer_len);
+
+			if(left2send <= buffer_len) //buffer len has been added to log if possible, also handle that the buffer already has been entirely sent
+			{
+				sent = xMessageBufferSendFromISR(xMessageBufferTrans_udp, buffer, buffer_len, &xHigherPriorityTaskWoken);
+	//			printf("logging_vprintf sent=%d\n",sent);
+				assert(sent == buffer_len);
+
+				xEarlyLogIdxSent_udp = xEarlyLogIdx; //everything sent
+			}
+			else
+			{
+				//leave for sending early buffer first
+			}
+#if 0
+			else if(xTimer == NULL)
+			{
+				//send a part of the leftovers first, and reschedule a comeback
+				sent = xMessageBufferSendFromISR(xMessageBufferTrans_udp, &xEarlyLog[xEarlyLogIdxSent_udp], min(left2send, xBufferSizeBytes/2), &xHigherPriorityTaskWoken);
+
+				printf("logging_vprintf early  %d %d\n",(int)sent, (int)xEarlyLogIdxSent_udp);
+
+				xEarlyLogIdxSent_udp += sent;
+
+				//if more to send, retrigger
+				unsigned int left2sendNow = xEarlyLogIdx - xEarlyLogIdxSent_udp;
+				if(left2sendNow > 0)
+					StartDeleyedLOG();
+			}
+#endif
 		}
 		if(xMessageBufferTrans_tcp != NULL) {
 			size_t sent = xMessageBufferSendFromISR(xMessageBufferTrans_tcp, buffer, buffer_len, &xHigherPriorityTaskWoken);
