@@ -49,12 +49,25 @@ int net_logging_retreive_log(void* dest, int size)
 
 static TimerHandle_t xTimer = NULL;
 
-int net_logging_out(const char* buffer, unsigned int buffer_len);
+static unsigned int net_logging_out_raw(const char* buffer, unsigned int buffer_len);
 static void net_logging_DelayedLOG(TimerHandle_t _xTimer)
 {
-	net_logging_out(NULL, 0xFFFFFFFF); //to surely trigger the early log buffer sending
+	unsigned int left2send = xEarlyLogIdx - xEarlyLogIdxSent_udp;
+	size_t sent = net_logging_out_raw(&xEarlyLog[xEarlyLogIdxSent_udp], min(left2send, xItemSize));
 
-	xTimerDelete(_xTimer, 0);
+	printf("delayed LOG buffer=%d %d %d\n", xEarlyLogIdx, xEarlyLogIdxSent_udp, sent);
+
+	xEarlyLogIdxSent_udp += sent;
+	left2send -= sent;
+
+	if(left2send > 0)
+	    xTimerStart(_xTimer, 0);
+	else
+	{
+		printf("LOG timer done");
+		xTimerDelete(_xTimer, 0);
+		xTimer = NULL;
+	}
 }
 
 static void StartDeleyedLOG(void)
@@ -67,72 +80,83 @@ static void StartDeleyedLOG(void)
     xTimerStart(xTimer, 0);
 }
 
+static unsigned int net_logging_out_raw(const char* buffer, unsigned int buffer_len)
+{
+	if(!bLoggersActive || buffer_len <= 0)
+		return 0;
+
+	// Send MessageBuffer
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+	size_t sent = 0;
+
+	if(xMessageBufferTrans_udp != NULL) {
+		printf("raw log %d", buffer_len);
+		sent = xMessageBufferSendFromISR(xMessageBufferTrans_udp, buffer, buffer_len, &xHigherPriorityTaskWoken);
+	}
+	if(xMessageBufferTrans_tcp != NULL) {
+		sent = xMessageBufferSendFromISR(xMessageBufferTrans_tcp, buffer, buffer_len, &xHigherPriorityTaskWoken);
+	}
+	if(xMessageBufferTrans_mqqt != NULL) {
+		sent = xMessageBufferSendFromISR(xMessageBufferTrans_mqqt, buffer, buffer_len, &xHigherPriorityTaskWoken);
+	}
+	if(xMessageBufferTrans_http != NULL) {
+		sent = xMessageBufferSendFromISR(xMessageBufferTrans_http, buffer, buffer_len, &xHigherPriorityTaskWoken);
+	}
+
+//	assert(sent == buffer_len);
+	return buffer_len;
+}
+
 //todo take care of first sending the already existing buffer
 //this is done by examining the sent position and the current early log position
 //note that everytime there is more left in the buffer that hasnt been sent yet, we need to trigger a log entry from another thread to wake this up
 //so if xEarlyLogIdxSent_udp == xEarlyLogIdx just sent right away
 //if there is sth left to sendfrom buffer and it is not
-int net_logging_out(const char* buffer, unsigned int buffer_len)
+static unsigned int net_logging_out(const char* buffer, unsigned int buffer_len)
 {
-	if(!bLoggersActive)
+	if(!bLoggersActive || buffer_len <= 0)
 		return 0;
 
-	if (buffer_len > 0) {
-		// Send MessageBuffer
-		BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+//	size_t sent = 0;
 
-		if(xMessageBufferTrans_udp != NULL) {
-
-			size_t sent = 0;
-			unsigned int left2send = xEarlyLogIdx - xEarlyLogIdxSent_udp;
-
-			printf("logging_vprintf %d %d\n",(int)left2send, (int)buffer_len);
-
-			if(left2send <= buffer_len) //buffer len has been added to log if possible, also handle that the buffer already has been entirely sent
-			{
-				sent = xMessageBufferSendFromISR(xMessageBufferTrans_udp, buffer, buffer_len, &xHigherPriorityTaskWoken);
-	//			printf("logging_vprintf sent=%d\n",sent);
-				assert(sent == buffer_len);
-
-				xEarlyLogIdxSent_udp = xEarlyLogIdx; //everything sent
-			}
-			else
-			{
-				//leave for sending early buffer first
-			}
-#if 0
-			else if(xTimer == NULL)
-			{
-				//send a part of the leftovers first, and reschedule a comeback
-				sent = xMessageBufferSendFromISR(xMessageBufferTrans_udp, &xEarlyLog[xEarlyLogIdxSent_udp], min(left2send, xBufferSizeBytes/2), &xHigherPriorityTaskWoken);
-
-				printf("logging_vprintf early  %d %d\n",(int)sent, (int)xEarlyLogIdxSent_udp);
-
-				xEarlyLogIdxSent_udp += sent;
-
-				//if more to send, retrigger
-				unsigned int left2sendNow = xEarlyLogIdx - xEarlyLogIdxSent_udp;
-				if(left2sendNow > 0)
-					StartDeleyedLOG();
-			}
-#endif
+	if(xMessageBufferTrans_udp != NULL) {
+//		unsigned int left2send = xEarlyLogIdx - xEarlyLogIdxSent_udp;
+//		if(left2send <= 0)
+		if(xTimer == NULL)
+		{
+			net_logging_out_raw(buffer, buffer_len);
 		}
-		if(xMessageBufferTrans_tcp != NULL) {
-			size_t sent = xMessageBufferSendFromISR(xMessageBufferTrans_tcp, buffer, buffer_len, &xHigherPriorityTaskWoken);
-			assert(sent == buffer_len);
+//		xEarlyLogIdxSent_udp += sent;
+	}
+	if(xMessageBufferTrans_tcp != NULL) {
+//		unsigned int left2send = 0;//xEarlyLogIdx - xEarlyLogIdxSent_tcp;
+//		if(left2send <= 0)
+		{
+			net_logging_out_raw(buffer, buffer_len);
 		}
-		if(xMessageBufferTrans_mqqt != NULL) {
-			size_t sent = xMessageBufferSendFromISR(xMessageBufferTrans_mqqt, buffer, buffer_len, &xHigherPriorityTaskWoken);
-			assert(sent == buffer_len);
+//		xEarlyLogIdxSent_tcp += sent;
+	}
+	if(xMessageBufferTrans_mqqt != NULL) {
+//		unsigned int left2send = 0;//xEarlyLogIdx - xEarlyLogIdxSent_mqqt;
+//		if(left2send <= 0)
+		{
+			net_logging_out_raw(buffer, buffer_len);
 		}
-		if(xMessageBufferTrans_http != NULL) {
-			size_t sent = xMessageBufferSendFromISR(xMessageBufferTrans_http, buffer, buffer_len, &xHigherPriorityTaskWoken);
-			assert(sent == buffer_len);
+//		xEarlyLogIdxSent_mqqt += sent;
+	}
+	if(xMessageBufferTrans_http != NULL) {
+//		unsigned int left2send = 0;//xEarlyLogIdx - xEarlyLogIdxSent_http;
+//		if(left2send <= 0)
+		{
+			net_logging_out_raw(buffer, buffer_len);
 		}
+//		xEarlyLogIdxSent_http += sent;
 	}
 
 	return buffer_len;
 }
+
+/////////////
 
 int net_logging_early_vprintf(const char *fmt, va_list l)
 {
@@ -160,13 +184,13 @@ int net_logging_vprintf( const char *fmt, va_list l )
 	char buffer[xItemSize];
 	//printf("logging_vprintf buffer_len=%d\n",buffer_len);
 	//printf("logging_vprintf buffer=[%.*s]\n", buffer_len, buffer);
-	int buffer_len = 0;
+	unsigned int buffer_len = 0;
 	buffer_len += snprintf(&buffer[buffer_len], sizeof(buffer) - buffer_len, "[%X] ", (int)xId);
 	buffer_len += vsnprintf(&buffer[buffer_len], sizeof(buffer) - buffer_len, fmt, l);
-	int sent = 0;
+	size_t sent = 0;
 
 	//write to the early buffer in any case
-	int len = min(buffer_len, (sizeof(xEarlyLog) - xEarlyLogIdx));
+	unsigned int len = min(buffer_len, (sizeof(xEarlyLog) - xEarlyLogIdx));
 	if(len > 0)
 	{
 		memcpy(&xEarlyLog[xEarlyLogIdx], buffer, len);
@@ -254,9 +278,10 @@ esp_err_t udp_logging_init(char *ipaddr, unsigned long port) {
 
 	// Wait for ready to receive notify
 	ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
-	//printf("ulTaskNotifyTake\n");
-
 	net_logging_enable_log();
+
+	StartDeleyedLOG();
+
 	return ESP_OK;
 }
 
@@ -278,8 +303,6 @@ esp_err_t tcp_logging_init(char *ipaddr, unsigned long port) {
 
 	// Wait for ready to receive notify
 	ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
-	//printf("ulTaskNotifyTake\n");
-
 	net_logging_enable_log();
 	return ESP_OK;
 }
@@ -302,8 +325,6 @@ esp_err_t mqtt_logging_init(char *url, char *topic) {
 
 	// Wait for ready to receive notify
 	ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
-	//printf("ulTaskNotifyTake\n");
-
 	net_logging_enable_log();
 	return ESP_OK;
 }
@@ -325,8 +346,6 @@ esp_err_t http_logging_init(char *url) {
 
 	// Wait for ready to receive notify
 	ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
-	//printf("ulTaskNotifyTake\n");
-
 	net_logging_enable_log();
 	return ESP_OK;
 }

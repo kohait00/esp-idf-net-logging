@@ -12,7 +12,7 @@ extern "C" {
 #define xItemSize 256
 
 // The total number of bytes (not messages) the message buffer will be able to hold at any one time for the sender thread, before it is able to run
-#define xBufferSizeBytes (4 * xItemSize)
+#define xBufferSizeBytes (8 * xItemSize)
 
 int net_logging_retreive_log(void* dest, int size);
 int net_logging_early_vprintf(const char *fmt, va_list l);
