@@ -158,13 +158,13 @@ static void http_post_with_url(char *url, char * post_data, size_t post_len)
 
 void http_client(void *pvParameters)
 {
-	PARAMETER_t *task_parameter = pvParameters;
-	PARAMETER_t param;
-	memcpy((char *)&param, task_parameter, sizeof(PARAMETER_t));
+	NET_LOGGING_PARAMETER_T *task_parameter = pvParameters;
+	NET_LOGGING_PARAMETER_T param;
+	memcpy((char *)&param, task_parameter, sizeof(NET_LOGGING_PARAMETER_T));
 	//printf("Start:param.url=[%s]\n", param.url);
 
 	// Send ready to receive notify
-	char buffer[xItemSize];
+	char buffer[NET_LOGGING_xItemSize];
 	xTaskNotifyGive(param.taskHandle);
 
 	while (1) {

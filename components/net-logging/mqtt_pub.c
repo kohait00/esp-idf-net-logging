@@ -72,9 +72,9 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 
 void mqtt_pub(void *pvParameters)
 {
-	PARAMETER_t *task_parameter = pvParameters;
-	PARAMETER_t param;
-	memcpy((char *)&param, task_parameter, sizeof(PARAMETER_t));
+	NET_LOGGING_PARAMETER_T *task_parameter = pvParameters;
+	NET_LOGGING_PARAMETER_T param;
+	memcpy((char *)&param, task_parameter, sizeof(NET_LOGGING_PARAMETER_T));
 	//printf("Start:param.url=[%s] param.topic=[%s]\n", param.url, param.topic);
 
 	// Create Event Group
@@ -116,7 +116,7 @@ void mqtt_pub(void *pvParameters)
 	//printf("Connected to MQTT Broker\n");
 
 	// Send ready to receive notify
-	char buffer[xItemSize];
+	char buffer[NET_LOGGING_xItemSize];
 	xTaskNotifyGive(param.taskHandle);
 
 	while (1) {

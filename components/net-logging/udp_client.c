@@ -31,9 +31,9 @@ void udp_dump(char *id, char *data, int len)
 
 // UDP Client Task
 void udp_client(void *pvParameters) {
-	PARAMETER_t *task_parameter = pvParameters;
-	PARAMETER_t param;
-	memcpy((char *)&param, task_parameter, sizeof(PARAMETER_t));
+	NET_LOGGING_PARAMETER_T *task_parameter = pvParameters;
+	NET_LOGGING_PARAMETER_T param;
+	memcpy((char *)&param, task_parameter, sizeof(NET_LOGGING_PARAMETER_T));
 	//printf("Start:param.port=%d param.ipv4=[%s]\n", param.port, param.ipv4);
 
 	struct sockaddr_in addr;
@@ -51,7 +51,7 @@ void udp_client(void *pvParameters) {
 	LWIP_ASSERT("fd >= 0", fd >= 0);
 
 	// Send ready to receive notify
-	char buffer[xItemSize];
+	char buffer[NET_LOGGING_xItemSize];
 	xTaskNotifyGive(param.taskHandle);
 
 	while(1) {
