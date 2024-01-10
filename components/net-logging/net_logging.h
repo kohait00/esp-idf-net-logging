@@ -5,10 +5,14 @@
 extern "C" {
 #endif
 
-#include "esp_system.h"
-#include "esp_log.h"
+#include <esp_system.h>
+#include <esp_log.h>
 
 #include "net_logging_early.h"
+
+void net_log_write(esp_log_level_t level,
+                   const char *tag,
+                   const char *format, ...);
 
 typedef struct {
 	uint16_t port;
@@ -22,6 +26,7 @@ int net_logging_vprintf( const char *fmt, va_list l );
 int net_logging_printf(const char *fmt, ...);
 void net_logging_init(unsigned int id, bool enableStdout);
 
+bool net_logging_is_enabled(void);
 void net_logging_enable_log(void);
 void net_logging_disable_log(void);
 void net_logging_set_id(unsigned int id);
