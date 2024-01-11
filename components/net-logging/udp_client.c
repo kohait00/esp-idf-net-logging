@@ -16,7 +16,7 @@
 
 #include "net_logging.h"
 
-extern MessageBufferHandle_t xMessageBufferTrans_udp;
+extern MessageBufferHandle_t xMessageBufferTrans[NET_LOGGING_DEST_COUNT];
 
 void udp_dump(char *id, char *data, int len)
 {
@@ -55,7 +55,7 @@ void udp_client(void *pvParameters) {
 	xTaskNotifyGive(param.taskHandle);
 
 	while(1) {
-		size_t received = xMessageBufferReceive(xMessageBufferTrans_udp, buffer, sizeof(buffer), portMAX_DELAY);
+		size_t received = xMessageBufferReceive(xMessageBufferTrans[NET_LOGGING_DEST_UDP], buffer, sizeof(buffer), portMAX_DELAY);
 		//printf("xMessageBufferReceive received=%d\n", received);
 		if (received > 0) {
 			//printf("xMessageBufferReceive buffer=[%.*s]\n",received, buffer);

@@ -26,7 +26,7 @@
 EventGroupHandle_t mqtt_status_event_group;
 #define MQTT_CONNECTED_BIT BIT2
 
-extern MessageBufferHandle_t xMessageBufferTrans_mqqt;
+extern MessageBufferHandle_t xMessageBufferTrans[NET_LOGGING_DEST_COUNT];
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
@@ -120,7 +120,7 @@ void mqtt_pub(void *pvParameters)
 	xTaskNotifyGive(param.taskHandle);
 
 	while (1) {
-		size_t received = xMessageBufferReceive(xMessageBufferTrans_mqqt, buffer, sizeof(buffer), portMAX_DELAY);
+		size_t received = xMessageBufferReceive(xMessageBufferTrans[NET_LOGGING_DEST_MQQT], buffer, sizeof(buffer), portMAX_DELAY);
 		//printf("xMessageBufferReceive received=%d\n", received);
 		if (received > 0) {
 			//printf("xMessageBufferReceive buffer=[%.*s]\n",received, buffer);

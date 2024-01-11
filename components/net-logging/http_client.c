@@ -18,7 +18,7 @@
 
 #include "net_logging.h"
 
-extern MessageBufferHandle_t xMessageBufferTrans_http;
+extern MessageBufferHandle_t xMessageBufferTrans[NET_LOGGING_DEST_COUNT];
 
 esp_err_t _http_client_event_handler(esp_http_client_event_t *evt)
 {
@@ -168,7 +168,7 @@ void http_client(void *pvParameters)
 	xTaskNotifyGive(param.taskHandle);
 
 	while (1) {
-		size_t received = xMessageBufferReceive(xMessageBufferTrans_http, buffer, sizeof(buffer), portMAX_DELAY);
+		size_t received = xMessageBufferReceive(xMessageBufferTrans[NET_LOGGING_DEST_HTTP], buffer, sizeof(buffer), portMAX_DELAY);
 		//printf("xMessageBufferReceive received=%d\n", received);
 		if (received > 0) {
 			//printf("xMessageBufferReceive buffer=[%.*s]\n",received, buffer);
