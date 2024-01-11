@@ -29,6 +29,8 @@ void tcp_client(void *pvParameters)
 	memcpy((char *)&param, task_parameter, sizeof(NET_LOGGING_PARAMETER_T));
 	printf("Start:param.port=%d param.ipv4=[%s]\n", param.port, param.ipv4);
 
+	NET_LOGGING_DEST eDest = param.eDest;
+
 #if 0
 	char rx_buffer[128];
 #endif
@@ -77,7 +79,7 @@ void tcp_client(void *pvParameters)
 	xTaskNotifyGive(param.taskHandle);
 
 	while (1) {
-		size_t received = xMessageBufferReceive(xMessageBufferTrans[NET_LOGGING_DEST_TCP], buffer, sizeof(buffer), portMAX_DELAY);
+		size_t received = xMessageBufferReceive(xMessageBufferTrans[eDest], buffer, sizeof(buffer), portMAX_DELAY);
 		//printf("xMessageBufferReceive received=%d\n", received);
 		if (received > 0) {
 			//printf("xMessageBufferReceive buffer=[%.*s]\n",received, buffer);

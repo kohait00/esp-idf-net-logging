@@ -24,7 +24,7 @@ int net_logging_retreive_early_log(void* dest, int size);
 
 int net_logging_early_vprintf(const char *fmt, va_list l);
 int net_logging_early_printf(const char *fmt, ...);
-void net_logging_early_init(unsigned int id, bool enableStdout, bool initlate);
+void net_logging_early_init(void);
 
 #ifdef __cplusplus
 }

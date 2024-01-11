@@ -75,7 +75,9 @@ void mqtt_pub(void *pvParameters)
 	NET_LOGGING_PARAMETER_T *task_parameter = pvParameters;
 	NET_LOGGING_PARAMETER_T param;
 	memcpy((char *)&param, task_parameter, sizeof(NET_LOGGING_PARAMETER_T));
-	//printf("Start:param.url=[%s] param.topic=[%s]\n", param.url, param.topic);
+	printf("Start:param.url=[%s] param.topic=[%s]\n", param.url, param.topic);
+
+	NET_LOGGING_DEST eDest = param.eDest;
 
 	// Create Event Group
 	mqtt_status_event_group = xEventGroupCreate();
@@ -120,7 +122,7 @@ void mqtt_pub(void *pvParameters)
 	xTaskNotifyGive(param.taskHandle);
 
 	while (1) {
-		size_t received = xMessageBufferReceive(xMessageBufferTrans[NET_LOGGING_DEST_MQQT], buffer, sizeof(buffer), portMAX_DELAY);
+		size_t received = xMessageBufferReceive(xMessageBufferTrans[eDest], buffer, sizeof(buffer), portMAX_DELAY);
 		//printf("xMessageBufferReceive received=%d\n", received);
 		if (received > 0) {
 			//printf("xMessageBufferReceive buffer=[%.*s]\n",received, buffer);

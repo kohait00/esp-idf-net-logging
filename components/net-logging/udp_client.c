@@ -34,7 +34,9 @@ void udp_client(void *pvParameters) {
 	NET_LOGGING_PARAMETER_T *task_parameter = pvParameters;
 	NET_LOGGING_PARAMETER_T param;
 	memcpy((char *)&param, task_parameter, sizeof(NET_LOGGING_PARAMETER_T));
-	//printf("Start:param.port=%d param.ipv4=[%s]\n", param.port, param.ipv4);
+	printf("Start:param.port=%d param.ipv4=[%s]\n", param.port, param.ipv4);
+
+	NET_LOGGING_DEST eDest = param.eDest;
 
 	struct sockaddr_in addr;
 	memset(&addr, 0, sizeof(addr));
@@ -55,7 +57,7 @@ void udp_client(void *pvParameters) {
 	xTaskNotifyGive(param.taskHandle);
 
 	while(1) {
-		size_t received = xMessageBufferReceive(xMessageBufferTrans[NET_LOGGING_DEST_UDP], buffer, sizeof(buffer), portMAX_DELAY);
+		size_t received = xMessageBufferReceive(xMessageBufferTrans[eDest], buffer, sizeof(buffer), portMAX_DELAY);
 		//printf("xMessageBufferReceive received=%d\n", received);
 		if (received > 0) {
 			//printf("xMessageBufferReceive buffer=[%.*s]\n",received, buffer);

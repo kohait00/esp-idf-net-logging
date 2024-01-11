@@ -11,13 +11,34 @@
 
 #include "net_logging.h"
 
+#define NET_LOGGING_TASK_STACK_SIZE 1024u*6u
+
 #	define min(x, y) ((x) < (y) ? (x) : (y))
+
+void udp_client(void *pvParameters);
+void tcp_client(void *pvParameters);
+void mqtt_pub(void *pvParameters);
+void http_client(void *pvParameters);
 
 static unsigned int net_logging_out(const char* buffer, unsigned int buffer_len, bool force);
 
 ////////
 
 MessageBufferHandle_t xMessageBufferTrans[NET_LOGGING_DEST_COUNT] = {0};
+
+static const char* xaDestTags[NET_LOGGING_DEST_COUNT] = {
+	[NET_LOGGING_DEST_UDP] = "UDP",
+	[NET_LOGGING_DEST_TCP] = "TCP",
+	[NET_LOGGING_DEST_MQTT] = "MQTT",
+	[NET_LOGGING_DEST_HTTP] = "HTTP",
+};
+
+static TaskFunction_t xaDestTasks[] = {
+	[NET_LOGGING_DEST_UDP] = udp_client,
+	[NET_LOGGING_DEST_TCP] = tcp_client,
+	[NET_LOGGING_DEST_MQTT] = mqtt_pub,
+	[NET_LOGGING_DEST_HTTP] = http_client,
+};
 
 static bool bWriteToStdout = true; //default value for early log
 static bool bLoggersActive = false;
@@ -48,6 +69,7 @@ static void net_logging_DelayedLOG(TimerHandle_t _xTimer)
 {
 	unsigned short dest = 0;
 
+	//find destination for this particular timer
 	for(dest = 0; dest < NET_LOGGING_DEST_COUNT; dest++)
 	{
 		if(xaTimer[dest] == _xTimer)
@@ -75,9 +97,7 @@ static void net_logging_DelayedLOG(TimerHandle_t _xTimer)
 		}
 	}
 
-//	taskENTER_CRITICAL(&xSpinlock);
 	xaEarlyLogIdxSent[dest] = xaEarlyLogIdxSent[dest] + sent;
-//	taskEXIT_CRITICAL(&xSpinlock);
 
 	left2send -= sent;
 
@@ -112,20 +132,13 @@ static unsigned int net_logging_out(const char* buffer, unsigned int buffer_len,
 	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 	size_t sent = 0;
 
-	if((xMessageBufferTrans[NET_LOGGING_DEST_UDP] != NULL) && ((xaTimer[NET_LOGGING_DEST_UDP] == NULL) || force)) {
-		sent = xMessageBufferSendFromISR(xMessageBufferTrans[NET_LOGGING_DEST_UDP], buffer, buffer_len, &xHigherPriorityTaskWoken);
-	}
-	if((xMessageBufferTrans[NET_LOGGING_DEST_TCP] != NULL) && ((xaTimer[NET_LOGGING_DEST_TCP] == NULL) || force)) {
-		sent = xMessageBufferSendFromISR(xMessageBufferTrans[NET_LOGGING_DEST_TCP], buffer, buffer_len, &xHigherPriorityTaskWoken);
-	}
-	if((xMessageBufferTrans[NET_LOGGING_DEST_MQQT] != NULL) && ((xaTimer[NET_LOGGING_DEST_MQQT] == NULL) || force)) {
-		sent = xMessageBufferSendFromISR(xMessageBufferTrans[NET_LOGGING_DEST_MQQT], buffer, buffer_len, &xHigherPriorityTaskWoken);
-	}
-	if((xMessageBufferTrans[NET_LOGGING_DEST_HTTP] != NULL) && ((xaTimer[NET_LOGGING_DEST_HTTP] == NULL) || force)) {
-		sent = xMessageBufferSendFromISR(xMessageBufferTrans[NET_LOGGING_DEST_HTTP], buffer, buffer_len, &xHigherPriorityTaskWoken);
+	for(unsigned int dest = 0; dest < NET_LOGGING_DEST_COUNT; dest++)
+	{
+		if((xMessageBufferTrans[dest] != NULL) && ((xaTimer[dest] == NULL) || force)) {
+			sent = xMessageBufferSendFromISR(xMessageBufferTrans[dest], buffer, buffer_len, &xHigherPriorityTaskWoken);
+		}
 	}
 
-//	assert(sent == buffer_len);
 	return buffer_len;
 }
 
@@ -141,6 +154,25 @@ static int net_logging_vprintf_buff( char* buffer, unsigned int buffer_size, con
 	buffer_i += strlen(&buffer[buffer_i]);
 
 	return buffer_i;
+}
+
+static esp_err_t net_logging_init_task(const NET_LOGGING_PARAMETER_T* param)
+{
+	NET_LOGGING_DEST eDest = param->eDest;
+
+	// Create MessageBuffer
+	xMessageBufferTrans[eDest] = xMessageBufferCreate(NET_LOGGING_xBufferSizeBytes);
+	configASSERT( xMessageBufferTrans[eDest] );
+
+	// Start TCP task
+	xTaskCreate(xaDestTasks[eDest], xaDestTags[eDest], NET_LOGGING_TASK_STACK_SIZE, (void *)param, 2, NULL);
+
+	// Wait for ready to receive notify
+	ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
+
+	StartSendingDeleyedLOG(eDest);
+
+	return ESP_OK;
 }
 
 /////////////
@@ -243,12 +275,13 @@ int net_logging_printf(const char *fmt, ...)
 
 bool net_logging_is_enabled(void)
 {
-	return  bLoggersActive && (
-			   (xMessageBufferTrans[NET_LOGGING_DEST_UDP] != NULL)
-			|| (xMessageBufferTrans[NET_LOGGING_DEST_TCP] != NULL)
-			|| (xMessageBufferTrans[NET_LOGGING_DEST_MQQT] != NULL)
-			|| (xMessageBufferTrans[NET_LOGGING_DEST_HTTP] != NULL)
-			);
+	bool dest_active = false;
+	for(unsigned int dest = 0; dest < NET_LOGGING_DEST_COUNT; dest++)
+	{
+		dest_active = dest_active  || (xMessageBufferTrans[dest] != NULL);
+	}
+
+	return  bLoggersActive && dest_active;
 }
 
 void net_logging_enable_log(void)
@@ -261,119 +294,130 @@ void net_logging_disable_log(void)
 	bLoggersActive = false;
 }
 
+void net_logging_enable_stdlog(void)
+{
+	bWriteToStdout = true;
+}
+
+void net_logging_disable_stdlog(void)
+{
+	bWriteToStdout = false;
+}
+
 void net_logging_set_id(unsigned int id)
 {
 	xId = id;
 }
 
-void net_logging_early_init(unsigned int id, bool enableStdout, bool initlate)
+void net_logging_early_init(void)
 {
 	if(xPrevious_early_vprintf_like == NULL) //prevent loops
 		xPrevious_early_vprintf_like = esp_log_set_early_vprintf(net_logging_early_printf);
 
-	net_logging_set_id(id);
-	bWriteToStdout = enableStdout;
-
-	if(initlate)
-		net_logging_init(id, enableStdout);
+	net_logging_init(); //if early, so late
 }
 
-void net_logging_init(unsigned int id, bool enableStdout)
+void net_logging_init(void)
 {
 	if(xPrevious_vprintf_like == NULL) //prevent loops
 		xPrevious_vprintf_like = esp_log_set_vprintf(net_logging_vprintf);
-
-	net_logging_set_id(id);
-	bWriteToStdout = enableStdout;
 }
-
-void udp_client(void *pvParameters);
 
 esp_err_t udp_logging_init(char *ipaddr, unsigned long port) {
 	printf("start udp logging: ipaddr=[%s] port=%ld\n", ipaddr, port);
 
-	// Create MessageBuffer
-	xMessageBufferTrans[NET_LOGGING_DEST_UDP] = xMessageBufferCreate(NET_LOGGING_xBufferSizeBytes);
-	configASSERT( xMessageBufferTrans[NET_LOGGING_DEST_UDP] );
-
-	// Start UDP task
 	NET_LOGGING_PARAMETER_T param;
+	param.eDest = NET_LOGGING_DEST_UDP;
 	param.port = port;
 	strcpy(param.ipv4, ipaddr);
 	param.taskHandle = xTaskGetCurrentTaskHandle();
-	xTaskCreate(udp_client, "UDP", 1024*6, (void *)&param, 2, NULL);
 
-	// Wait for ready to receive notify
-	ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
+	return net_logging_init_task(&param);
 
-	StartSendingDeleyedLOG(NET_LOGGING_DEST_UDP);
-	return ESP_OK;
+//	// Create MessageBuffer
+//	xMessageBufferTrans[NET_LOGGING_DEST_UDP] = xMessageBufferCreate(NET_LOGGING_xBufferSizeBytes);
+//	configASSERT( xMessageBufferTrans[NET_LOGGING_DEST_UDP] );
+//
+//	// Start UDP task
+//	xTaskCreate(udp_client, "UDP", 1024*6, (void *)&param, 2, NULL);
+//
+//	// Wait for ready to receive notify
+//	ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
+//
+//	StartSendingDeleyedLOG(NET_LOGGING_DEST_UDP);
+//	return ESP_OK;
 }
-
-void tcp_client(void *pvParameters);
 
 esp_err_t tcp_logging_init(char *ipaddr, unsigned long port) {
 	printf("start tcp logging: ipaddr=[%s] port=%ld\n", ipaddr, port);
 
-	// Create MessageBuffer
-	xMessageBufferTrans[NET_LOGGING_DEST_TCP] = xMessageBufferCreate(NET_LOGGING_xBufferSizeBytes);
-	configASSERT( xMessageBufferTrans[NET_LOGGING_DEST_TCP] );
-
-	// Start TCP task
 	NET_LOGGING_PARAMETER_T param;
+	param.eDest = NET_LOGGING_DEST_TCP;
 	param.port = port;
 	strcpy(param.ipv4, ipaddr);
 	param.taskHandle = xTaskGetCurrentTaskHandle();
-	xTaskCreate(tcp_client, "TCP", 1024*6, (void *)&param, 2, NULL);
 
-	// Wait for ready to receive notify
-	ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
+	return net_logging_init_task(&param);
 
-	StartSendingDeleyedLOG(NET_LOGGING_DEST_TCP);
-	return ESP_OK;
+//	// Create MessageBuffer
+//	xMessageBufferTrans[NET_LOGGING_DEST_TCP] = xMessageBufferCreate(NET_LOGGING_xBufferSizeBytes);
+//	configASSERT( xMessageBufferTrans[NET_LOGGING_DEST_TCP] );
+//
+//	// Start TCP task
+//	xTaskCreate(tcp_client, "TCP", 1024*6, (void *)&param, 2, NULL);
+//
+//	// Wait for ready to receive notify
+//	ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
+//
+//	StartSendingDeleyedLOG(NET_LOGGING_DEST_TCP);
+//	return ESP_OK;
 }
-
-void mqtt_pub(void *pvParameters);
 
 esp_err_t mqtt_logging_init(char *url, char *topic) {
 	printf("start mqtt logging: url=[%s] topic=[%s]\n", url, topic);
 
-	// Create MessageBuffer
-	xMessageBufferTrans[NET_LOGGING_DEST_MQQT] = xMessageBufferCreate(NET_LOGGING_xBufferSizeBytes);
-	configASSERT( xMessageBufferTrans[NET_LOGGING_DEST_MQQT] );
-
-	// Start MQTT task
 	NET_LOGGING_PARAMETER_T param;
+	param.eDest = NET_LOGGING_DEST_MQTT;
 	strcpy(param.url, url);
 	strcpy(param.topic, topic);
 	param.taskHandle = xTaskGetCurrentTaskHandle();
-	xTaskCreate(mqtt_pub, "MQTT", 1024*6, (void *)&param, 2, NULL);
 
-	// Wait for ready to receive notify
-	ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
+	return net_logging_init_task(&param);
 
-	StartSendingDeleyedLOG(NET_LOGGING_DEST_MQQT);
-	return ESP_OK;
+//	// Create MessageBuffer
+//	xMessageBufferTrans[NET_LOGGING_DEST_MQTT] = xMessageBufferCreate(NET_LOGGING_xBufferSizeBytes);
+//	configASSERT( xMessageBufferTrans[NET_LOGGING_DEST_MQTT] );
+//
+//	// Start MQTT task
+//	xTaskCreate(mqtt_pub, "MQTT", 1024*6, (void *)&param, 2, NULL);
+//
+//	// Wait for ready to receive notify
+//	ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
+//
+//	StartSendingDeleyedLOG(NET_LOGGING_DEST_MQTT);
+//	return ESP_OK;
 }
-
-void http_client(void *pvParameters);
 
 esp_err_t http_logging_init(char *url) {
 	printf("start http logging: url=[%s]\n", url);
 
-	// Create MessageBuffer
-	xMessageBufferTrans[NET_LOGGING_DEST_HTTP] = xMessageBufferCreate(NET_LOGGING_xBufferSizeBytes);
-	configASSERT( xMessageBufferTrans[NET_LOGGING_DEST_HTTP] );
-
-	// Start HTTP task
 	NET_LOGGING_PARAMETER_T param;
+	param.eDest = NET_LOGGING_DEST_HTTP;
 	strcpy(param.url, url);
 	param.taskHandle = xTaskGetCurrentTaskHandle();
-	xTaskCreate(http_client, "HTTP", 1024*4, (void *)&param, 2, NULL);
 
-	// Wait for ready to receive notify
-	ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
+	return net_logging_init_task(&param);
 
-	StartSendingDeleyedLOG(NET_LOGGING_DEST_HTTP);
-	return ESP_OK;
+//	// Create MessageBuffer
+//	xMessageBufferTrans[NET_LOGGING_DEST_HTTP] = xMessageBufferCreate(NET_LOGGING_xBufferSizeBytes);
+//	configASSERT( xMessageBufferTrans[NET_LOGGING_DEST_HTTP] );
+//
+//	// Start HTTP task
+//	xTaskCreate(http_client, "HTTP", 1024*4, (void *)&param, 2, NULL);
+//
+//	// Wait for ready to receive notify
+//	ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
+//
+//	StartSendingDeleyedLOG(NET_LOGGING_DEST_HTTP);
+//	return ESP_OK;
 }
