@@ -42,14 +42,20 @@ static TaskFunction_t xaDestTasks[] = {
 	[NET_LOGGING_DEST_HTTP] = http_client,
 };
 
+#define NETLOG_PERSIST RTC_NOINIT_ATTR
+
+#define NET_LOGGING_INIT_MAGIC 0xDEAD0BEEUL
+NETLOG_PERSIST uint32_t xEarlyInitializedMagic;
+
 static bool bWriteToStdout = true; //default value for early log
 static bool bLoggersActive = false;
 
-static RTC_NOINIT_ATTR unsigned int xId_def;
-static unsigned int xId = 0; //defaults to xId_def, generates a dummy id
+NETLOG_PERSIST uint32_t xId_def;
+NETLOG_PERSIST uint32_t xId; //defaults to xId_def, generates a dummy id
 
-static unsigned int xEarlyLogIdx = 0;
-static char xEarlyLog[NET_LOGGING_EARLY_LOG_SIZE] = {0};
+//to be able to be used in bootloader as well, fixed position is needed, without initialzation inbetween
+uint32_t xEarlyLogIdx;// __attribute__((at(0x3ffb0000)));
+NETLOG_PERSIST char xEarlyLog[NET_LOGGING_EARLY_LOG_SIZE]; // __attribute__((at(0x3ffb0004)));
 
 static unsigned int xaEarlyLogIdxSent[NET_LOGGING_DEST_COUNT] = {0};
 static TimerHandle_t xaTimer[NET_LOGGING_DEST_COUNT] = {0};
@@ -312,10 +318,26 @@ void net_logging_set_id(unsigned int id)
 	xId = id;
 }
 
+static void net_logging_prepare_init(void)
+{
+	if(xEarlyInitializedMagic != NET_LOGGING_INIT_MAGIC)
+	{
+		//use an id from the uninitialized field
+		xId = xId_def;
+		xEarlyLogIdx = 0;
+
+		for(unsigned int i = 0; i<sizeof(xEarlyLog); ++i)
+		{
+			xEarlyLog[i] = 0;
+		}
+
+		xEarlyInitializedMagic = NET_LOGGING_INIT_MAGIC;
+	}
+}
+
 void net_logging_early_init(void)
 {
-	//use an id from the uninitialized field
-	xId = xId_def;
+	net_logging_prepare_init();
 
 	if(xPrevious_early_vprintf_like == NULL) //prevent loops
 		xPrevious_early_vprintf_like = esp_log_set_early_vprintf(net_logging_early_printf);
@@ -325,6 +347,8 @@ void net_logging_early_init(void)
 
 void net_logging_init(void)
 {
+	net_logging_prepare_init();
+
 	if(xPrevious_vprintf_like == NULL) //prevent loops
 		xPrevious_vprintf_like = esp_log_set_vprintf(net_logging_vprintf);
 }
