@@ -42,7 +42,12 @@ static TaskFunction_t xaDestTasks[] = {
 	[NET_LOGGING_DEST_HTTP] = http_client,
 };
 
-#define NETLOG_PERSIST RTC_NOINIT_ATTR
+// Forces data into RTC memory of .noinit section.
+// Any variable marked with this attribute will keep its value
+// after restart or during a deep sleep / wake cycle.
+#define RTC_NOINIT_ATTR_NET_LOGGING  __attribute__((section(".rtc_noinit.netlogging")))
+
+#define NETLOG_PERSIST RTC_NOINIT_ATTR_NET_LOGGING
 
 #define NET_LOGGING_INIT_MAGIC 0xDEAD0BEEUL
 NETLOG_PERSIST uint32_t xEarlyInitializedMagic;
@@ -54,7 +59,7 @@ NETLOG_PERSIST uint32_t xId_def;
 NETLOG_PERSIST uint32_t xId; //defaults to xId_def, generates a dummy id
 
 //to be able to be used in bootloader as well, fixed position is needed, without initialzation inbetween
-uint32_t xEarlyLogIdx;// __attribute__((at(0x3ffb0000)));
+NETLOG_PERSIST uint32_t xEarlyLogIdx;// __attribute__((at(0x3ffb0000)));
 NETLOG_PERSIST char xEarlyLog[NET_LOGGING_EARLY_LOG_SIZE]; // __attribute__((at(0x3ffb0004)));
 
 static unsigned int xaEarlyLogIdxSent[NET_LOGGING_DEST_COUNT] = {0};
@@ -65,6 +70,23 @@ static early_vprintf_like_t xPrevious_early_vprintf_like = NULL;
 static vprintf_like_t xPrevious_vprintf_like = NULL;
 
 //
+
+static void net_logging_prepare_init(void)
+{
+	if(xEarlyInitializedMagic != NET_LOGGING_INIT_MAGIC)
+	{
+		//use an id from the uninitialized field
+		xId = xId_def;
+		xEarlyLogIdx = 0;
+
+		for(unsigned int i = 0; i<sizeof(xEarlyLog); ++i)
+		{
+			xEarlyLog[i] = 0;
+		}
+
+		xEarlyInitializedMagic = NET_LOGGING_INIT_MAGIC;
+	}
+}
 
 int net_logging_retreive_early_log(void* dest, int size)
 {
@@ -203,6 +225,8 @@ void net_log_write(esp_log_level_t level,
 //no need to take care of multi threading
 int net_logging_early_vprintf(const char *fmt, va_list l)
 {
+	net_logging_prepare_init(); //need to make sure that early vprintf is able to use pre initialized data basis, to prevent memory corruptions (calls prior to net_logging_init())
+
 	unsigned int left = sizeof(xEarlyLog) - xEarlyLogIdx;
 
 	if(left < 12)
@@ -316,23 +340,6 @@ void net_logging_set_id(unsigned int id)
 {
 	ESP_LOGW(TAG, "Setting Id: [%06X]", (int)id);
 	xId = id;
-}
-
-static void net_logging_prepare_init(void)
-{
-	if(xEarlyInitializedMagic != NET_LOGGING_INIT_MAGIC)
-	{
-		//use an id from the uninitialized field
-		xId = xId_def;
-		xEarlyLogIdx = 0;
-
-		for(unsigned int i = 0; i<sizeof(xEarlyLog); ++i)
-		{
-			xEarlyLog[i] = 0;
-		}
-
-		xEarlyInitializedMagic = NET_LOGGING_INIT_MAGIC;
-	}
 }
 
 void net_logging_early_init(void)
